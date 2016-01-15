@@ -2,3 +2,7 @@
 name = "cmdseq"
 version = "0.1.0"
 authors = ["Jasper Schulz <jasper.schulz@student.hpi.de>"]
+
+[dependencies]
+rust-crypto = "^0.2"
+getopts = "0.2"
