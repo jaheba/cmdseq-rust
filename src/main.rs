@@ -17,6 +17,14 @@ use getopts::Options;
 
 
 
+fn print_usage(error: String, opts: &Options) {
+    if !error.is_empty() {
+        println!("{}", error);    
+    }
+
+    print!("{}", opts.usage(&"Usage: cmdseq [-d <count dir>] <count1> <cmd1> [... <countn> <cmdn>]"));
+}
+
 /// build hash from input str and return first 16 chars of it
 fn hash(input: &str) -> String {
     let mut sha = Sha256::new();
@@ -67,11 +75,14 @@ fn execute_command(command: &str) {
     });
 }
 
-fn parse_commands(args: &Vec<String>) -> (Vec<usize>, Vec<String>) {
+fn parse_commands(args: &Vec<String>) -> Result<(Vec<usize>, Vec<String>), String> {
 
     //check len of args is even
+    if args.len() == 0 {
+        return Err("Error: missing commands".to_string());
+    }
     if args.len() %2 != 0 {
-        panic!("pairs of n command is needed");
+        return Err("pairs of commands are needed".to_string());
     }
 
     let mut repetitions: Vec<usize> = vec!();
@@ -81,9 +92,10 @@ fn parse_commands(args: &Vec<String>) -> (Vec<usize>, Vec<String>) {
         mut iter => loop {
             match iter.next() {
                 Some(n_str) => {
-                    let n = n_str.parse::<usize>().unwrap_or_else(|e| {
-                        panic!("could not prase {} into number", e)
-                    });
+                    let n = match n_str.parse::<usize>(){
+                        Ok(v) => v,
+                        Err(e) => return Err(format!("could not prase {} into number", e))
+                    };
                     let cmd = iter.next().unwrap();
 
                     repetitions.push(n);
@@ -94,7 +106,7 @@ fn parse_commands(args: &Vec<String>) -> (Vec<usize>, Vec<String>) {
         }
     };
 
-    (repetitions, commands)
+    Ok((repetitions, commands))
 
 }
 
@@ -104,20 +116,28 @@ struct CLIOption {
     commands: Vec<String>
 }
 
-fn parse_options() -> Option<CLIOption>{
+fn build_options() -> Options {
+    let mut opts = Options::new();
+
+    opts.optopt("d", "", "countdir", "dir");
+    opts.optflag("h", "help", "print this help menu");   
+
+    opts
+}
+
+fn parse_options(opts: &Options) -> Result<CLIOption, String>{
     let args: Vec<String> = std::env::args().collect();
 
-    let mut opts = Options::new();
-    opts.optopt("d", "", "countdir", "dir");
-    opts.optflag("h", "help", "print this help menu");
     let matches = match opts.parse(&args[1..]) {
         Ok(m) => { m }
-        Err(f) => { panic!(f.to_string()) }
+        Err(f) => {
+            return Err(f.to_string());
+        }
     };
 
     if matches.opt_present("h") {
         // print_usage(&program, opts);
-        return None;
+        return Err("".to_string());
     }
 
     let dir = match matches.opt_str("d") {
@@ -126,9 +146,12 @@ fn parse_options() -> Option<CLIOption>{
     };
 
 
-    let (rep, cmds) = parse_commands(&matches.free);
+    let (rep, cmds) = match parse_commands(&matches.free) {
+        Ok((rep, cmds)) => (rep, cmds),
+        Err(e) => return Err(e.to_string())
+    };
     
-    Some(CLIOption {
+    Ok(CLIOption {
         directory: dir,
         repetitions: rep,
         commands: cmds
@@ -171,12 +194,13 @@ fn main() {
     // build hash from argv
     let hash_value = hash(&args[1..].join("-"));
     
+    let opts = build_options();
     // get cli options
-    let options = match parse_options() {
-        Some(opts) => opts,
-        None => {
-            println!("help");
-            std::process::exit(-1);
+    let options = match parse_options(&opts) {
+        Ok(opts) => opts,
+        Err(e) => {
+            print_usage(e, &opts);
+            std::process::exit(1);
         }
     };
 
@@ -186,7 +210,10 @@ fn main() {
 
     // read cookie
     let current_cmd_index = read_cookie(&path);
+
+    // get command to execute
     let (cmd_vector_index, next_cmd_index) = cycle(&options.repetitions, current_cmd_index);
+
     execute_command(&options.commands[cmd_vector_index]);
 
     write_cookie(&path, next_cmd_index);
